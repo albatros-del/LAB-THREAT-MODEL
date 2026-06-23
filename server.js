@@ -26,6 +26,9 @@ const REQUESTS = [
   { id: 3, owner: "alice", amount: 18.0, category: "Meals", description: "Team lunch", status: "Approved" },
 ];
 
+// ✅ Server-side session store (FIX)
+const sessions = {}; // sessionId -> { username, role }
+
 const MIME = { ".html": "text/html", ".js": "application/javascript", ".css": "text/css" };
 
 function send(res, status, body, headers = {}) {
@@ -64,6 +67,20 @@ function serveStatic(req, res, pathname) {
   });
 }
 
+// ✅ Helper to read session from cookie (FIX)
+function getSession(req) {
+  const cookie = req.headers.cookie;
+  if (!cookie) return null;
+
+  const parts = cookie.split(";").map(c => c.trim());
+  const sessionPart = parts.find(c => c.startsWith("sessionId="));
+
+  if (!sessionPart) return null;
+
+  const sessionId = sessionPart.split("=")[1];
+  return sessions[sessionId];
+}
+
 const server = http.createServer((req, res) => {
   const parsed = url.parse(req.url, true);
   const pathname = parsed.pathname;
@@ -80,6 +97,17 @@ const server = http.createServer((req, res) => {
       if (!user || user.password !== password) {
         return send(res, 401, { error: "Invalid credentials" });
       }
+
+      // ✅ Create session (FIX)
+      const sessionId = Math.random().toString(36).substring(2);
+      sessions[sessionId] = {
+        username,
+        role: user.role
+      };
+
+      // ✅ Send session cookie (FIX)
+      res.setHeader("Set-Cookie", `sessionId=${sessionId}; HttpOnly`);
+
       return send(res, 200, { username, role: user.role, name: user.name });
     });
   }
@@ -112,9 +140,11 @@ const server = http.createServer((req, res) => {
   const decisionMatch = pathname.match(/^\/api\/requests\/(\d+)\/decision$/);
   if (req.method === "POST" && decisionMatch) {
     return readBody(req, body => {
-      const { decision, actingRole } = body;
+      const { decision } = body; // ✅ actingRole removed (FIX)
 
-      if (actingRole !== "manager") {
+      // ✅ Server-side authorization check (FIX)
+      const session = getSession(req);
+      if (!session || session.role !== "manager") {
         return send(res, 403, { error: "Only managers can approve or reject requests" });
       }
 
